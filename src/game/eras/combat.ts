@@ -24,6 +24,8 @@ const BULLET_SPEED = 160;
 const TANK_SPEED = 55;
 const ROT_SPEED = 3.2;
 const FIRE_COOLDOWN = 0.45;
+const AI_FIRE_COOLDOWN = 1.35;
+const AI_ROT_SPEED = 2.1;
 const MAX_BOUNCES = 4;
 
 type Rect = { x: number; y: number; w: number; h: number };
@@ -38,6 +40,8 @@ type Tank = {
   isPlayer: boolean;
   aiTimer: number;
   aiDrive: number;
+  aiWanderAngle: number;
+  aiChase: boolean;
 };
 
 type Bullet = {
@@ -107,16 +111,38 @@ export class CombatEra implements Era {
   playerScore = 0;
   enemyScore = 0;
   private respawnTimer = 0;
+  private pendingEvolve = false;
 
   enter(): void {
     this.walls = buildArena();
     this.playerScore = 0;
     this.enemyScore = 0;
     this.bullets = [];
+    this.pendingEvolve = false;
     this.spawnTanks();
   }
 
+  snapshot(): {
+    playerX: number;
+    playerY: number;
+    playerAngle: number;
+    enemyPositions: { x: number; y: number; angle: number }[];
+  } {
+    const player = this.tanks.find((t) => t.isPlayer);
+    const enemies = this.tanks.filter((t) => !t.isPlayer);
+    return {
+      playerX: player?.x ?? 56,
+      playerY: player?.y ?? GAME_H / 2,
+      playerAngle: player?.angle ?? 0,
+      enemyPositions: enemies.map((e) => ({ x: e.x, y: e.y, angle: e.angle })),
+    };
+  }
+
   update(dt: number, input: InputState): EraResult {
+    if (this.pendingEvolve) {
+      return { type: 'evolve', next: 'invaders', payload: this.snapshot() };
+    }
+
     if (this.respawnTimer > 0) {
       this.respawnTimer -= dt;
       if (this.respawnTimer <= 0) this.spawnTanks();
@@ -134,6 +160,11 @@ export class CombatEra implements Era {
     }
 
     this.updateBullets(dt);
+
+    if (this.pendingEvolve) {
+      return { type: 'evolve', next: 'invaders', payload: this.snapshot() };
+    }
+
     return { type: 'continue' };
   }
 
@@ -176,28 +207,34 @@ export class CombatEra implements Era {
         isPlayer: true,
         aiTimer: 0,
         aiDrive: 0,
+        aiWanderAngle: 0,
+        aiChase: true,
       },
       {
         x: GAME_W - 64,
         y: GAME_H / 2 - 36,
         angle: Math.PI,
-        cooldown: 0.5,
+        cooldown: 1.2,
         alive: true,
         color: COLORS.enemy,
         isPlayer: false,
         aiTimer: 0,
         aiDrive: 1,
+        aiWanderAngle: Math.PI,
+        aiChase: false,
       },
       {
         x: GAME_W - 64,
         y: GAME_H / 2 + 36,
         angle: Math.PI,
-        cooldown: 0.8,
+        cooldown: 1.8,
         alive: true,
         color: COLORS.enemy,
         isPlayer: false,
         aiTimer: 0.3,
         aiDrive: 1,
+        aiWanderAngle: Math.PI,
+        aiChase: true,
       },
     ];
     this.bullets = [];
@@ -220,25 +257,29 @@ export class CombatEra implements Era {
     const player = this.tanks.find((p) => p.isPlayer && p.alive);
     if (!player) return;
 
-    const desired = angleTo(t, player);
-    let diff = normAngle(desired - t.angle);
-    const turn = clamp(diff, -ROT_SPEED * dt, ROT_SPEED * dt);
-    t.angle += turn;
-
-    // Occasionally reverse / pause
     if (t.aiTimer <= 0) {
-      t.aiTimer = 0.4 + Math.random() * 0.9;
+      t.aiTimer = 0.7 + Math.random() * 1.4;
       const d = dist(t, player);
+      // Often wander instead of chasing
+      t.aiChase = Math.random() < 0.4;
+      t.aiWanderAngle = t.angle + (Math.random() - 0.5) * Math.PI * 1.4;
       if (d < 40) t.aiDrive = -1;
-      else if (Math.random() < 0.15) t.aiDrive = 0;
+      else if (Math.random() < 0.35) t.aiDrive = 0;
+      else if (Math.random() < 0.25) t.aiDrive = -1;
       else t.aiDrive = 1;
     }
 
-    if (t.aiDrive !== 0) this.moveTank(t, t.aiDrive, dt);
+    const desired = t.aiChase ? angleTo(t, player) : t.aiWanderAngle;
+    const diff = normAngle(desired - t.angle);
+    const turn = clamp(diff, -AI_ROT_SPEED * dt, AI_ROT_SPEED * dt);
+    t.angle += turn;
 
-    // Fire when roughly aimed
-    if (Math.abs(diff) < 0.25 && dist(t, player) < 180 && t.cooldown <= 0) {
-      if (Math.random() < 0.035) this.tryFire(t);
+    if (t.aiDrive !== 0) this.moveTank(t, t.aiDrive, dt * 0.85);
+
+    // Fire sparingly when roughly aimed at the player
+    const aimDiff = normAngle(angleTo(t, player) - t.angle);
+    if (Math.abs(aimDiff) < 0.2 && dist(t, player) < 160 && t.cooldown <= 0) {
+      if (Math.random() < 0.012) this.tryFire(t, true);
     }
   }
 
@@ -262,14 +303,14 @@ export class CombatEra implements Era {
     }
   }
 
-  private tryFire(t: Tank): void {
+  private tryFire(t: Tank, isAi = false): void {
     if (t.cooldown > 0) return;
     // One bullet per tank at a time
     const mine = this.bullets.find((b) => b.alive && b.ownerPlayer === t.isPlayer);
     // Allow multiple for AI collectively but limit per tank via cooldown; player one live
     if (t.isPlayer && mine) return;
 
-    t.cooldown = FIRE_COOLDOWN;
+    t.cooldown = isAi || !t.isPlayer ? AI_FIRE_COOLDOWN : FIRE_COOLDOWN;
     const muzzle = TANK / 2 + 2;
     this.bullets.push({
       x: t.x + Math.cos(t.angle) * muzzle - BULLET / 2,
@@ -325,10 +366,18 @@ export class CombatEra implements Era {
           } else {
             this.playerScore++;
           }
-          // If player dead or all enemies dead, respawn round
           const playerAlive = this.tanks.some((x) => x.isPlayer && x.alive);
           const enemiesAlive = this.tanks.some((x) => !x.isPlayer && x.alive);
-          if (!playerAlive || !enemiesAlive) {
+
+          // Player wiped both tanks → evolve into Space Invaders
+          if (playerAlive && !enemiesAlive) {
+            this.pendingEvolve = true;
+            this.bullets = [];
+            break;
+          }
+
+          // Player died → brief pause then respawn round
+          if (!playerAlive) {
             this.respawnTimer = 1.2;
             for (const x of this.tanks) x.alive = false;
             this.bullets = [];

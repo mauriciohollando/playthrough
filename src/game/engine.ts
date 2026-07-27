@@ -1,5 +1,10 @@
 import { setupCanvas } from './canvas';
 import { CombatEra } from './eras/combat';
+import {
+  CombatToInvadersTransition,
+  type CombatSnapshot,
+} from './eras/combatToInvaders';
+import { InvadersEra } from './eras/invaders';
 import { PongEra, type PongSnapshot } from './eras/pong';
 import { TransitionEra } from './eras/transition';
 import { initInput, pollInput } from './input';
@@ -54,6 +59,16 @@ export class GameEngine {
       this.era.enter();
       return;
     }
-    // Future eras plug in here
+    if (next === 'invaders' && this.era instanceof CombatEra) {
+      const snap = (payload as CombatSnapshot) ?? this.era.snapshot();
+      this.era = new CombatToInvadersTransition(snap);
+      this.era.enter();
+      return;
+    }
+    if (next === 'invaders') {
+      this.era = new InvadersEra();
+      this.era.enter(payload);
+      return;
+    }
   }
 }

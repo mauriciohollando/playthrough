@@ -28,11 +28,17 @@ export class PongEra implements Era {
   ballY = GAME_H / 2 - BALL / 2;
   ballVx = BALL_SPEED;
   ballVy = BALL_SPEED * 0.6;
+  private aiError = 0;
+  private aiMistakeTimer = 0;
+  private aiIdle = false;
 
   enter(): void {
     this.resetBall(true);
     this.leftY = GAME_H / 2 - PADDLE_H / 2;
     this.rightY = GAME_H / 2 - PADDLE_H / 2;
+    this.aiError = 0;
+    this.aiMistakeTimer = 0.6;
+    this.aiIdle = false;
   }
 
   snapshot(): PongSnapshot {
@@ -51,11 +57,21 @@ export class PongEra implements Era {
     if (input.down) this.leftY += SPEED_PADDLE * dt;
     this.leftY = clamp(this.leftY, WALL, GAME_H - WALL - PADDLE_H);
 
-    // AI right paddle
-    const target = this.ballY + BALL / 2 - PADDLE_H / 2;
-    const aiSpeed = SPEED_PADDLE * 0.72;
-    if (this.rightY + PADDLE_H / 2 < target - 2) this.rightY += aiSpeed * dt;
-    else if (this.rightY + PADDLE_H / 2 > target + 2) this.rightY -= aiSpeed * dt;
+    // AI right paddle — slower, with occasional mistakes
+    this.aiMistakeTimer -= dt;
+    if (this.aiMistakeTimer <= 0) {
+      this.aiMistakeTimer = 0.45 + Math.random() * 1.1;
+      this.aiError = (Math.random() - 0.5) * PADDLE_H * 1.6;
+      this.aiIdle = Math.random() < 0.28;
+    }
+
+    if (!this.aiIdle) {
+      const target = this.ballY + BALL / 2 - PADDLE_H / 2 + this.aiError;
+      const aiSpeed = SPEED_PADDLE * 0.38;
+      const center = this.rightY + PADDLE_H / 2;
+      if (center < target - 6) this.rightY += aiSpeed * dt;
+      else if (center > target + 6) this.rightY -= aiSpeed * dt;
+    }
     this.rightY = clamp(this.rightY, WALL, GAME_H - WALL - PADDLE_H);
 
     this.ballX += this.ballVx * dt;
