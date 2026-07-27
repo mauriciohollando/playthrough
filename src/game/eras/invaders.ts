@@ -64,6 +64,7 @@ export class InvadersEra implements Era {
   private lives = 3;
   private respawnTimer = 0;
   private invuln = 0;
+  private waveIndex = 0;
 
   enter(payload?: unknown): void {
     const hint = payload as InvadersSpawnHint | undefined;
@@ -73,8 +74,27 @@ export class InvadersEra implements Era {
     this.cooldown = 0;
     this.respawnTimer = 0;
     this.invuln = 1.2;
+    this.waveIndex = 0;
     this.resetWave();
     this.buildBunkers();
+  }
+
+  snapshot(): {
+    shipX: number;
+    shipY: number;
+    slots: { x: number; y: number; row: number }[];
+    bunkers: { x: number; y: number }[];
+  } {
+    const slots = this.invaders.map((inv) => {
+      const p = this.invPos(inv);
+      return { x: p.x, y: p.y, row: inv.row };
+    });
+    return {
+      shipX: this.shipX,
+      shipY: SHIP_Y + SHIP_H / 2,
+      slots,
+      bunkers: this.bunkers.filter((b) => b.alive).map((b) => ({ x: b.x, y: b.y })),
+    };
   }
 
   update(dt: number, input: InputState): EraResult {
@@ -118,6 +138,11 @@ export class InvadersEra implements Era {
     this.updateBullets(dt);
 
     if (this.aliveCount() === 0) {
+      // First wave clear → evolve into Asteroids
+      if (this.waveIndex === 0) {
+        return { type: 'evolve', next: 'asteroids', payload: this.snapshot() };
+      }
+      this.waveIndex++;
       this.resetWave();
       this.stepInterval = Math.max(0.28, this.stepInterval - 0.04);
     }
