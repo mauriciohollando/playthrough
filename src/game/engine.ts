@@ -49,11 +49,27 @@ import {
 import { initInput, pollInput } from './input';
 import type { Era, EraId } from './types';
 
+/** Playable eras in evolution order (transitions skipped for debug jumps). */
+const ERA_ORDER: EraId[] = [
+  'pong',
+  'combat',
+  'invaders',
+  'asteroids',
+  'pacman',
+  'breakout',
+  'lunar',
+  'galaxian',
+  'football',
+  'warrior',
+  'rallyx',
+];
+
 export class GameEngine {
   private era: Era;
   private ctx: CanvasRenderingContext2D;
   private last = 0;
   private running = false;
+  private debugIndex = 0;
 
   constructor(canvas: HTMLCanvasElement) {
     const { ctx } = setupCanvas(canvas);
@@ -61,12 +77,78 @@ export class GameEngine {
     this.era = new PongEra();
     this.era.enter();
     initInput();
+    this.initDebugKeys();
   }
 
   start(): void {
     this.running = true;
     this.last = performance.now();
     requestAnimationFrame(this.frame);
+  }
+
+  private initDebugKeys(): void {
+    window.addEventListener('keydown', (e) => {
+      if (e.repeat) return;
+      if (!e.ctrlKey && !e.metaKey) return;
+      if (e.code === 'Digit0' || e.key === '0') {
+        e.preventDefault();
+        this.debugSkip(1);
+      } else if (e.code === 'Digit9' || e.key === '9') {
+        e.preventDefault();
+        this.debugSkip(-1);
+      }
+    });
+  }
+
+  private debugSkip(delta: number): void {
+    const len = ERA_ORDER.length;
+    this.debugIndex = (this.debugIndex + delta + len) % len;
+    this.jumpToEra(ERA_ORDER[this.debugIndex]);
+  }
+
+  private jumpToEra(id: EraId): void {
+    switch (id) {
+      case 'pong':
+        this.era = new PongEra();
+        break;
+      case 'combat':
+        this.era = new CombatEra();
+        break;
+      case 'invaders':
+        this.era = new InvadersEra();
+        break;
+      case 'asteroids':
+        this.era = new AsteroidsEra();
+        break;
+      case 'pacman':
+        this.era = new PacManEra();
+        break;
+      case 'breakout':
+        this.era = new BreakoutEra();
+        break;
+      case 'lunar':
+        this.era = new LunarLanderEra();
+        break;
+      case 'galaxian':
+        this.era = new GalaxianEra();
+        break;
+      case 'football':
+        this.era = new FootballEra();
+        break;
+      case 'warrior':
+        this.era = new WarriorEra();
+        break;
+      case 'rallyx':
+        this.era = new RallyXEra();
+        break;
+    }
+    this.era.enter();
+    this.debugIndex = ERA_ORDER.indexOf(id);
+  }
+
+  private syncDebugIndex(id: EraId): void {
+    const i = ERA_ORDER.indexOf(id);
+    if (i >= 0) this.debugIndex = i;
   }
 
   private frame = (now: number): void => {
@@ -96,6 +178,7 @@ export class GameEngine {
     if (next === 'combat') {
       this.era = new CombatEra();
       this.era.enter();
+      this.syncDebugIndex('combat');
       return;
     }
     if (next === 'invaders' && this.era instanceof CombatEra) {
@@ -107,6 +190,7 @@ export class GameEngine {
     if (next === 'invaders') {
       this.era = new InvadersEra();
       this.era.enter(payload);
+      this.syncDebugIndex('invaders');
       return;
     }
     if (next === 'asteroids' && this.era instanceof InvadersEra) {
@@ -118,6 +202,7 @@ export class GameEngine {
     if (next === 'asteroids') {
       this.era = new AsteroidsEra();
       this.era.enter(payload);
+      this.syncDebugIndex('asteroids');
       return;
     }
     if (next === 'pacman' && this.era instanceof AsteroidsEra) {
@@ -129,6 +214,7 @@ export class GameEngine {
     if (next === 'pacman') {
       this.era = new PacManEra();
       this.era.enter();
+      this.syncDebugIndex('pacman');
       return;
     }
     if (next === 'breakout' && this.era instanceof PacManEra) {
@@ -140,6 +226,7 @@ export class GameEngine {
     if (next === 'breakout') {
       this.era = new BreakoutEra();
       this.era.enter();
+      this.syncDebugIndex('breakout');
       return;
     }
     if (next === 'lunar' && this.era instanceof BreakoutEra) {
@@ -151,6 +238,7 @@ export class GameEngine {
     if (next === 'lunar') {
       this.era = new LunarLanderEra();
       this.era.enter();
+      this.syncDebugIndex('lunar');
       return;
     }
     if (next === 'galaxian' && this.era instanceof LunarLanderEra) {
@@ -162,6 +250,7 @@ export class GameEngine {
     if (next === 'galaxian') {
       this.era = new GalaxianEra();
       this.era.enter();
+      this.syncDebugIndex('galaxian');
       return;
     }
     if (next === 'football' && this.era instanceof GalaxianEra) {
@@ -173,6 +262,7 @@ export class GameEngine {
     if (next === 'football') {
       this.era = new FootballEra();
       this.era.enter();
+      this.syncDebugIndex('football');
       return;
     }
     if (next === 'warrior' && this.era instanceof FootballEra) {
@@ -184,6 +274,7 @@ export class GameEngine {
     if (next === 'warrior') {
       this.era = new WarriorEra();
       this.era.enter();
+      this.syncDebugIndex('warrior');
       return;
     }
     if (next === 'rallyx' && this.era instanceof WarriorEra) {
@@ -195,6 +286,7 @@ export class GameEngine {
     if (next === 'rallyx') {
       this.era = new RallyXEra();
       this.era.enter();
+      this.syncDebugIndex('rallyx');
       return;
     }
   }
