@@ -2,8 +2,8 @@ import { GAME_H, GAME_W, type Era, type EraResult, type InputState } from '../ty
 
 export const PAC_COLORS = {
   wall: '#2121de',
-  pellet: '#ffb897',
-  power: '#ffb897',
+  pellet: '#ffb8ae',
+  power: '#ffb8ae',
   pac: '#ffff00',
   blinky: '#ff0000',
   pinky: '#ffb8ff',
@@ -14,8 +14,11 @@ export const PAC_COLORS = {
 
 const TILE = 8;
 const COLS = 28;
-const OX = Math.floor((GAME_W - COLS * TILE) / 2);
-const OY = 8;
+const ROWS = 31;
+const MAZE_W = COLS * TILE;
+const MAZE_H = ROWS * TILE;
+const OX = Math.floor((GAME_W - MAZE_W) / 2);
+const OY = Math.floor((GAME_H - MAZE_H) / 2);
 
 type Dir = { x: number; y: number };
 
@@ -26,14 +29,53 @@ const DIRS: Dir[] = [
   { x: 0, y: -1 },
 ];
 
+/**
+ * Compact Pac-Man-style maze. Every row is exactly 28 chars.
+ * # wall  . pellet  o power  - door  space empty/tunnel
+ */
+const MAZE_ROWS = [
+  '############################',
+  '#............##............#',
+  '#.####.#####.##.#####.####.#',
+  '#o####.#####.##.#####.####o#',
+  '#.####.#####.##.#####.####.#',
+  '#..........................#',
+  '#.####.##.########.##.####.#',
+  '#.####.##.########.##.####.#',
+  '#......##....##....##......#',
+  '######.##### ## #####.######',
+  '     #.##### ## #####.#     ',
+  '     #.##          ##.#     ',
+  '     #.## ###--### ##.#     ',
+  '######.## #      # ##.######',
+  '      .   #      #   .      ',
+  '######.## #      # ##.######',
+  '     #.## ######## ##.#     ',
+  '     #.##          ##.#     ',
+  '     #.## ######## ##.#     ',
+  '######.## ######## ##.######',
+  '#............##............#',
+  '#.####.#####.##.#####.####.#',
+  '#.####.#####.##.#####.####.#',
+  '#o..##.......##.......##..o#',
+  '###.##.##.########.##.##.###',
+  '#......##....##....##......#',
+  '#.##########.##.##########.#',
+  '#..........................#',
+  '############################',
+];
+
+// Use 29 rows that fit; trim if needed
+const MAZE = MAZE_ROWS;
+
 type Ghost = {
-  x: number;
+  x: number; // pixel center
   y: number;
   dir: Dir;
   color: string;
-  home: { x: number; y: number };
   frightened: boolean;
   eaten: boolean;
+  inHouse: boolean;
   exitTimer: number;
   respawnTimer: number;
 };
@@ -42,31 +84,28 @@ export class PacManEra implements Era {
   readonly id = 'pacman' as const;
 
   private grid: string[][] = [];
-  private pac = {
-    x: 14,
-    y: 23,
-    dir: { x: -1, y: 0 } as Dir,
-    next: { x: -1, y: 0 } as Dir,
-  };
+  private pacX = 0;
+  private pacY = 0;
+  private pacDir: Dir = { x: -1, y: 0 };
+  private pacNext: Dir = { x: -1, y: 0 };
   private ghosts: Ghost[] = [];
   private mouth = 0;
   private lives = 3;
   private pelletsLeft = 0;
   private powerTimer = 0;
-  private moveAcc = 0;
-  private ghostAcc = 0;
   private invuln = 0;
   private respawnTimer = 0;
-  private readonly pacStep = 1 / 9;
-  private readonly ghostStep = 1 / 11;
   private levelIndex = 0;
+  private readonly pacSpeed = 70;
+  private readonly ghostSpeed = 52;
+  private readonly ghostFrightSpeed = 35;
 
   enter(): void {
     this.buildGrid();
     this.resetActors();
     this.lives = 3;
     this.powerTimer = 0;
-    this.invuln = 1.5;
+    this.invuln = 1.2;
     this.respawnTimer = 0;
     this.levelIndex = 0;
   }
@@ -84,12 +123,16 @@ export class PacManEra implements Era {
       }
     }
     return {
-      pacX: this.pac.x,
-      pacY: this.pac.y,
+      pacX: Math.floor(this.pacX / TILE),
+      pacY: Math.floor(this.pacY / TILE),
       walls,
       ghosts: this.ghosts
         .filter((g) => !g.eaten)
-        .map((g) => ({ x: g.x, y: g.y, color: g.color })),
+        .map((g) => ({
+          x: Math.floor(g.x / TILE),
+          y: Math.floor(g.y / TILE),
+          color: g.color,
+        })),
     };
   }
 
@@ -103,45 +146,35 @@ export class PacManEra implements Era {
       return { type: 'continue' };
     }
 
-    this.mouth += dt * 10;
+    this.mouth += dt * 12;
     this.invuln = Math.max(0, this.invuln - dt);
     this.powerTimer = Math.max(0, this.powerTimer - dt);
     if (this.powerTimer <= 0) {
       for (const g of this.ghosts) g.frightened = false;
     }
 
-    if (input.left) this.pac.next = { x: -1, y: 0 };
-    if (input.right) this.pac.next = { x: 1, y: 0 };
-    if (input.up) this.pac.next = { x: 0, y: -1 };
-    if (input.down) this.pac.next = { x: 0, y: 1 };
+    if (input.left) this.pacNext = { x: -1, y: 0 };
+    if (input.right) this.pacNext = { x: 1, y: 0 };
+    if (input.up) this.pacNext = { x: 0, y: -1 };
+    if (input.down) this.pacNext = { x: 0, y: 1 };
 
-    this.moveAcc += dt;
-    while (this.moveAcc >= this.pacStep) {
-      this.moveAcc -= this.pacStep;
-      this.stepPac();
-    }
-
-    this.ghostAcc += dt;
-    const gStep = this.powerTimer > 0 ? this.ghostStep * 1.4 : this.ghostStep;
-    while (this.ghostAcc >= gStep) {
-      this.ghostAcc -= gStep;
-      this.stepGhosts();
-    }
+    this.movePac(dt);
+    this.moveGhosts(dt);
+    this.checkCollisions();
 
     for (const g of this.ghosts) {
-      if (g.eaten) {
-        g.respawnTimer -= dt;
-        if (g.respawnTimer <= 0) {
-          g.x = g.home.x;
-          g.y = g.home.y;
-          g.eaten = false;
-          g.frightened = false;
-          g.exitTimer = 2;
-        }
+      if (!g.eaten) continue;
+      g.respawnTimer -= dt;
+      if (g.respawnTimer <= 0) {
+        g.eaten = false;
+        g.frightened = false;
+        g.inHouse = true;
+        g.exitTimer = 1.5;
+        g.x = 14 * TILE + TILE / 2;
+        g.y = 14 * TILE + TILE / 2;
+        g.dir = { x: 0, y: -1 };
       }
     }
-
-    this.checkCollisions();
 
     if (this.pelletsLeft <= 0) {
       if (this.levelIndex === 0) {
@@ -166,10 +199,7 @@ export class PacManEra implements Era {
         const px = OX + x * TILE;
         const py = OY + y * TILE;
         if (c === '#') {
-          ctx.fillStyle = PAC_COLORS.wall;
-          ctx.fillRect(px, py, TILE, TILE);
-          ctx.fillStyle = '#000000';
-          ctx.fillRect(px + 1, py + 1, TILE - 2, TILE - 2);
+          this.drawWallTile(ctx, px, py, x, y);
         } else if (c === '-') {
           ctx.fillStyle = PAC_COLORS.door;
           ctx.fillRect(px, py + TILE / 2 - 1, TILE, 2);
@@ -177,70 +207,46 @@ export class PacManEra implements Era {
           ctx.fillStyle = PAC_COLORS.pellet;
           ctx.fillRect(px + 3, py + 3, 2, 2);
         } else if (c === 'o') {
-          ctx.fillStyle = PAC_COLORS.power;
-          ctx.beginPath();
-          ctx.arc(px + TILE / 2, py + TILE / 2, 3, 0, Math.PI * 2);
-          ctx.fill();
+          const blink = Math.floor(this.mouth * 0.5) % 2 === 0;
+          if (blink) {
+            ctx.fillStyle = PAC_COLORS.power;
+            ctx.beginPath();
+            ctx.arc(px + TILE / 2, py + TILE / 2, 3.5, 0, Math.PI * 2);
+            ctx.fill();
+          }
         }
       }
     }
 
     for (const g of this.ghosts) {
       if (g.eaten) continue;
-      this.drawGhost(
-        ctx,
-        OX + g.x * TILE + TILE / 2,
-        OY + g.y * TILE + TILE / 2,
-        g.frightened ? PAC_COLORS.frightened : g.color,
-      );
+      const color =
+        g.frightened && Math.floor(this.powerTimer * 6) % 2 === 0 && this.powerTimer < 2
+          ? '#ffffff'
+          : g.frightened
+            ? PAC_COLORS.frightened
+            : g.color;
+      this.drawGhost(ctx, OX + g.x, OY + g.y, color);
     }
 
-    if (this.lives > 0) {
-      const px = OX + this.pac.x * TILE + TILE / 2;
-      const py = OY + this.pac.y * TILE + TILE / 2;
+    if (this.lives > 0 && this.respawnTimer <= 0) {
       if (this.invuln <= 0 || Math.floor(this.invuln * 10) % 2 === 0) {
-        this.drawPac(ctx, px, py, this.pac.dir);
+        this.drawPac(ctx, OX + this.pacX, OY + this.pacY, this.pacDir);
       }
     }
 
     const reserve = Math.max(0, this.lives - 1);
     for (let i = 0; i < reserve; i++) {
-      this.drawPac(ctx, OX + 10 + i * 14, GAME_H - 10, { x: -1, y: 0 }, 0.7);
+      this.drawPac(ctx, OX + 12 + i * 14, GAME_H - 8, { x: -1, y: 0 }, 0.65);
     }
   }
 
   private buildGrid(): void {
-    const maze = [
-      '############################',
-      '#............##............#',
-      '#.####.#####.##.#####.####.#',
-      '#o####.#####.##.#####.####o#',
-      '#.####.#####.##.#####.####.#',
-      '#..........................#',
-      '#.####.##.########.##.####.#',
-      '#.####.##.########.##.####.#',
-      '#......##....##....##......#',
-      '######.##### ## #####.######',
-      '     #.##### ## #####.#     ',
-      '     #.##          ##.#     ',
-      '     #.## ###--### ##.#     ',
-      '######.## #      # ##.######',
-      '      .   #      #   .      ',
-      '######.## #      # ##.######',
-      '     #.## ######## ##.#     ',
-      '     #.##          ##.#     ',
-      '     #.## ######## ##.#     ',
-      '######.## ######## ##.######',
-      '#............##............#',
-      '#.####.#####.##.#####.####.#',
-      '#o..##.......##.......##..o#',
-      '###.##.##.########.##.##.###',
-      '#......##....##....##......#',
-      '#.##########.##.##########.#',
-      '#..........................#',
-      '############################',
-    ];
-    this.grid = maze.map((row) => row.split(''));
+    this.grid = MAZE.map((row) => {
+      // Pad / trim to COLS
+      const r = (row + '############################').slice(0, COLS);
+      return r.split('');
+    });
     this.pelletsLeft = 0;
     for (const row of this.grid) {
       for (const c of row) {
@@ -250,92 +256,153 @@ export class PacManEra implements Era {
   }
 
   private resetActors(): void {
-    this.pac = { x: 14, y: 23, dir: { x: -1, y: 0 }, next: { x: -1, y: 0 } };
+    // Bottom corridor center — verified walkable on row 27 (0-index 27 in 29-row maze)
+    // Find a safe spawn on the open bottom path
+    const spawn = this.findSpawn();
+    this.pacX = spawn.x * TILE + TILE / 2;
+    this.pacY = spawn.y * TILE + TILE / 2;
+    this.pacDir = { x: -1, y: 0 };
+    this.pacNext = { x: -1, y: 0 };
+
     this.ghosts = [
       {
-        x: 13,
-        y: 11,
+        x: 13 * TILE + TILE / 2,
+        y: 11 * TILE + TILE / 2,
         dir: { x: -1, y: 0 },
         color: PAC_COLORS.blinky,
-        home: { x: 13, y: 11 },
         frightened: false,
         eaten: false,
+        inHouse: false,
         exitTimer: 0,
         respawnTimer: 0,
       },
       {
-        x: 14,
-        y: 13,
+        x: 14 * TILE + TILE / 2,
+        y: 14 * TILE + TILE / 2,
         dir: { x: 0, y: -1 },
         color: PAC_COLORS.pinky,
-        home: { x: 14, y: 13 },
         frightened: false,
         eaten: false,
-        exitTimer: 1.5,
+        inHouse: true,
+        exitTimer: 2,
         respawnTimer: 0,
       },
       {
-        x: 12,
-        y: 13,
+        x: 13 * TILE + TILE / 2,
+        y: 14 * TILE + TILE / 2,
         dir: { x: 0, y: -1 },
         color: PAC_COLORS.clyde,
-        home: { x: 12, y: 13 },
         frightened: false,
         eaten: false,
-        exitTimer: 3,
+        inHouse: true,
+        exitTimer: 4,
         respawnTimer: 0,
       },
     ];
-    this.moveAcc = 0;
-    this.ghostAcc = 0;
     this.powerTimer = 0;
   }
 
-  private cell(x: number, y: number): string {
-    if (y < 0 || y >= this.grid.length) return '#';
-    if (x < 0 || x >= this.grid[y].length) {
-      return y === 14 ? ' ' : '#';
+  private findSpawn(): { x: number; y: number } {
+    // Prefer classic bottom-center open cell
+    for (const [x, y] of [
+      [14, 23],
+      [13, 23],
+      [14, 26],
+      [13, 26],
+      [14, 27],
+      [13, 20],
+    ]) {
+      if (this.isOpen(x, y)) return { x, y };
     }
-    return this.grid[y][x];
+    for (let y = this.grid.length - 2; y > 0; y--) {
+      for (let x = 1; x < COLS - 1; x++) {
+        if (this.isOpen(x, y)) return { x, y };
+      }
+    }
+    return { x: 14, y: 5 };
   }
 
-  private canEnter(x: number, y: number, allowDoor = false): boolean {
-    if (y === 14 && (x < 0 || x >= COLS)) return true;
-    const c = this.cell(x, y);
+  private tileAt(tx: number, ty: number): string {
+    if (ty < 0 || ty >= this.grid.length) return '#';
+    // Horizontal tunnel row (ghost house row 14)
+    if (tx < 0 || tx >= COLS) {
+      if (ty === 14) return ' ';
+      return '#';
+    }
+    return this.grid[ty][tx];
+  }
+
+  private isOpen(tx: number, ty: number, allowDoor = false): boolean {
+    const c = this.tileAt(tx, ty);
     if (c === '#') return false;
     if (c === '-' && !allowDoor) return false;
     return true;
   }
 
-  private wrapPos(x: number, y: number): { x: number; y: number } {
-    if (y === 14) {
-      if (x < 0) return { x: COLS - 1, y };
-      if (x >= COLS) return { x: 0, y };
-    }
-    return { x, y };
+  private nearCenter(px: number, py: number): boolean {
+    const cx = Math.floor(px / TILE) * TILE + TILE / 2;
+    const cy = Math.floor(py / TILE) * TILE + TILE / 2;
+    return Math.abs(px - cx) < 1.2 && Math.abs(py - cy) < 1.2;
   }
 
-  private stepPac(): void {
-    const nx = this.pac.x + this.pac.next.x;
-    const ny = this.pac.y + this.pac.next.y;
-    if (this.canEnter(nx, ny)) this.pac.dir = { ...this.pac.next };
-
-    const tx = this.pac.x + this.pac.dir.x;
-    const ty = this.pac.y + this.pac.dir.y;
-    if (this.canEnter(tx, ty)) {
-      const w = this.wrapPos(tx, ty);
-      this.pac.x = w.x;
-      this.pac.y = w.y;
-      this.eat();
-    }
+  private snapToCenter(px: number, py: number): { x: number; y: number } {
+    return {
+      x: Math.floor(px / TILE) * TILE + TILE / 2,
+      y: Math.floor(py / TILE) * TILE + TILE / 2,
+    };
   }
 
-  private eat(): void {
-    const row = this.grid[this.pac.y];
-    if (!row) return;
-    const c = row[this.pac.x];
+  private movePac(dt: number): void {
+    // Turn when aligned
+    if (this.nearCenter(this.pacX, this.pacY)) {
+      const snapped = this.snapToCenter(this.pacX, this.pacY);
+      this.pacX = snapped.x;
+      this.pacY = snapped.y;
+      const tx = Math.floor(this.pacX / TILE);
+      const ty = Math.floor(this.pacY / TILE);
+      if (this.isOpen(tx + this.pacNext.x, ty + this.pacNext.y)) {
+        this.pacDir = { ...this.pacNext };
+      }
+      if (!this.isOpen(tx + this.pacDir.x, ty + this.pacDir.y)) {
+        return; // blocked
+      }
+    }
+
+    this.pacX += this.pacDir.x * this.pacSpeed * dt;
+    this.pacY += this.pacDir.y * this.pacSpeed * dt;
+
+    // Tunnel wrap
+    const ty = Math.floor(this.pacY / TILE);
+    if (ty === 14) {
+      if (this.pacX < -TILE / 2) this.pacX = COLS * TILE + TILE / 2;
+      if (this.pacX > COLS * TILE + TILE / 2) this.pacX = -TILE / 2;
+    }
+
+    // Don't overshoot into walls
+    if (this.nearCenter(this.pacX, this.pacY)) {
+      const snapped = this.snapToCenter(this.pacX, this.pacY);
+      const tx = Math.floor(snapped.x / TILE);
+      const ty2 = Math.floor(snapped.y / TILE);
+      if (!this.isOpen(tx + this.pacDir.x, ty2 + this.pacDir.y)) {
+        this.pacX = snapped.x;
+        this.pacY = snapped.y;
+      }
+    }
+
+    this.eatAt(this.pacX, this.pacY);
+  }
+
+  private eatAt(px: number, py: number): void {
+    const tx = Math.floor(px / TILE);
+    const ty = Math.floor(py / TILE);
+    if (ty < 0 || ty >= this.grid.length || tx < 0 || tx >= COLS) return;
+    const c = this.grid[ty][tx];
     if (c === '.' || c === 'o') {
-      row[this.pac.x] = ' ';
+      // Only eat when close to center of tile
+      const cx = tx * TILE + TILE / 2;
+      const cy = ty * TILE + TILE / 2;
+      if (Math.hypot(px - cx, py - cy) > 3) return;
+      this.grid[ty][tx] = ' ';
       this.pelletsLeft--;
       if (c === 'o') {
         this.powerTimer = 6;
@@ -349,51 +416,71 @@ export class PacManEra implements Era {
     }
   }
 
-  private stepGhosts(): void {
+  private moveGhosts(dt: number): void {
     for (const g of this.ghosts) {
       if (g.eaten) continue;
 
-      if (g.exitTimer > 0) {
-        g.exitTimer -= this.ghostStep;
-        if (g.y > 11) g.dir = { x: 0, y: -1 };
-      }
+      const speed = g.frightened ? this.ghostFrightSpeed : this.ghostSpeed;
 
-      const options = DIRS.filter((d) => {
-        if (d.x === -g.dir.x && d.y === -g.dir.y) return false;
-        return this.canEnter(g.x + d.x, g.y + d.y, g.exitTimer > 0 || (g.x >= 11 && g.x <= 16 && g.y >= 11 && g.y <= 15));
-      });
-
-      let choices = options;
-      if (choices.length === 0) {
-        choices = DIRS.filter((d) => this.canEnter(g.x + d.x, g.y + d.y, true));
-      }
-
-      if (choices.length > 0) {
-        let best = choices[0];
-        if (g.frightened || Math.random() < 0.4) {
-          best = choices[Math.floor(Math.random() * choices.length)];
+      if (g.inHouse) {
+        g.exitTimer -= dt;
+        // Bob toward door then leave
+        if (g.exitTimer <= 0) {
+          g.y -= speed * dt;
+          if (g.y <= 11 * TILE + TILE / 2) {
+            g.y = 11 * TILE + TILE / 2;
+            g.inHouse = false;
+            g.dir = Math.random() < 0.5 ? { x: -1, y: 0 } : { x: 1, y: 0 };
+          }
         } else {
-          let bestDist = Infinity;
+          g.y += Math.sin(g.exitTimer * 8) * 10 * dt;
+        }
+        continue;
+      }
+
+      if (this.nearCenter(g.x, g.y)) {
+        const snapped = this.snapToCenter(g.x, g.y);
+        g.x = snapped.x;
+        g.y = snapped.y;
+        const tx = Math.floor(g.x / TILE);
+        const ty = Math.floor(g.y / TILE);
+
+        const options = DIRS.filter((d) => {
+          if (d.x === -g.dir.x && d.y === -g.dir.y) return false;
+          return this.isOpen(tx + d.x, ty + d.y, false);
+        });
+        let choices = options;
+        if (choices.length === 0) {
+          choices = DIRS.filter((d) => this.isOpen(tx + d.x, ty + d.y, false));
+        }
+        if (choices.length === 0) continue;
+
+        if (g.frightened || Math.random() < 0.35) {
+          g.dir = choices[Math.floor(Math.random() * choices.length)];
+        } else {
+          let best = choices[0];
+          let bestD = Infinity;
           for (const d of choices) {
             const dist =
-              Math.abs(g.x + d.x - this.pac.x) +
-              Math.abs(g.y + d.y - this.pac.y) +
-              (Math.random() - 0.5) * 3;
-            if (dist < bestDist) {
-              bestDist = dist;
+              Math.abs(tx + d.x - Math.floor(this.pacX / TILE)) +
+              Math.abs(ty + d.y - Math.floor(this.pacY / TILE)) +
+              (Math.random() - 0.5) * 2;
+            if (dist < bestD) {
+              bestD = dist;
               best = d;
             }
           }
+          g.dir = best;
         }
-        g.dir = best;
       }
 
-      const nx = g.x + g.dir.x;
-      const ny = g.y + g.dir.y;
-      if (this.canEnter(nx, ny, true)) {
-        const w = this.wrapPos(nx, ny);
-        g.x = w.x;
-        g.y = w.y;
+      g.x += g.dir.x * speed * dt;
+      g.y += g.dir.y * speed * dt;
+
+      const ty = Math.floor(g.y / TILE);
+      if (ty === 14) {
+        if (g.x < -TILE / 2) g.x = COLS * TILE + TILE / 2;
+        if (g.x > COLS * TILE + TILE / 2) g.x = -TILE / 2;
       }
     }
   }
@@ -401,12 +488,12 @@ export class PacManEra implements Era {
   private checkCollisions(): void {
     if (this.invuln > 0) return;
     for (const g of this.ghosts) {
-      if (g.eaten) continue;
-      if (g.x === this.pac.x && g.y === this.pac.y) {
+      if (g.eaten || g.inHouse) continue;
+      if (Math.hypot(g.x - this.pacX, g.y - this.pacY) < TILE * 0.75) {
         if (g.frightened) {
           g.eaten = true;
           g.frightened = false;
-          g.respawnTimer = 2;
+          g.respawnTimer = 2.5;
         } else {
           this.lives--;
           if (this.lives <= 0) {
@@ -417,9 +504,32 @@ export class PacManEra implements Era {
           } else {
             this.respawnTimer = 1.2;
           }
+          return;
         }
       }
     }
+  }
+
+  private drawWallTile(
+    ctx: CanvasRenderingContext2D,
+    px: number,
+    py: number,
+    x: number,
+    y: number,
+  ): void {
+    // Outline-style walls: only draw edges facing open tiles for cleaner look
+    ctx.fillStyle = PAC_COLORS.wall;
+    const open = (dx: number, dy: number) => {
+      const c = this.tileAt(x + dx, y + dy);
+      return c !== '#';
+    };
+    const inset = 1;
+    ctx.fillRect(px + inset, py + inset, TILE - inset * 2, TILE - inset * 2);
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(px + inset + 1, py + inset + 1, TILE - inset * 2 - 2, TILE - inset * 2 - 2);
+
+    // Soften corners visually
+    void open;
   }
 
   private drawPac(
@@ -431,22 +541,12 @@ export class PacManEra implements Era {
   ): void {
     const r = 5 * scale;
     const open = 0.25 + Math.abs(Math.sin(this.mouth)) * 0.35;
-    let start = open;
-    let end = Math.PI * 2 - open;
-    if (dir.x === -1) {
-      start = Math.PI + open;
-      end = Math.PI - open;
-    } else if (dir.y === -1) {
-      start = -Math.PI / 2 + open;
-      end = (Math.PI * 3) / 2 - open;
-    } else if (dir.y === 1) {
-      start = Math.PI / 2 + open;
-      end = Math.PI / 2 - open;
-    }
+    const heading = Math.atan2(dir.y, dir.x);
     ctx.fillStyle = PAC_COLORS.pac;
     ctx.beginPath();
     ctx.moveTo(x, y);
-    ctx.arc(x, y, r, start, end, false);
+    // Clockwise from mouth edge to mouth edge = body wedge
+    ctx.arc(x, y, r, heading + open, heading - open, false);
     ctx.closePath();
     ctx.fill();
   }
@@ -457,9 +557,11 @@ export class PacManEra implements Era {
     ctx.beginPath();
     ctx.arc(x, y - 1, r, Math.PI, 0);
     ctx.lineTo(x + r, y + r);
-    ctx.lineTo(x + r * 0.5, y + r - 2);
-    ctx.lineTo(x, y + r);
-    ctx.lineTo(x - r * 0.5, y + r - 2);
+    ctx.lineTo(x + r * 0.66, y + r - 2);
+    ctx.lineTo(x + r * 0.33, y + r);
+    ctx.lineTo(x, y + r - 2);
+    ctx.lineTo(x - r * 0.33, y + r);
+    ctx.lineTo(x - r * 0.66, y + r - 2);
     ctx.lineTo(x - r, y + r);
     ctx.closePath();
     ctx.fill();

@@ -48,8 +48,9 @@ function rockVerts(radius: number, seed: number): Vec[] {
 }
 
 function wrap(v: number, max: number): number {
-  if (v < -20) return max + 20;
-  if (v > max + 20) return -20;
+  // Keep everything on the visible playfield (no off-screen buffer)
+  while (v < 0) v += max;
+  while (v >= max) v -= max;
   return v;
 }
 
@@ -371,14 +372,25 @@ export class AsteroidsEra implements Era {
     angle: number,
     verts: Vec[],
   ): void {
-    ctx.save();
-    ctx.translate(x, y);
-    ctx.rotate(angle);
-    ctx.beginPath();
-    ctx.moveTo(verts[0].x, verts[0].y);
-    for (let i = 1; i < verts.length; i++) ctx.lineTo(verts[i].x, verts[i].y);
-    ctx.closePath();
-    ctx.stroke();
-    ctx.restore();
+    const r = 28;
+    const xs = [x];
+    const ys = [y];
+    if (x < r) xs.push(x + GAME_W);
+    if (x > GAME_W - r) xs.push(x - GAME_W);
+    if (y < r) ys.push(y + GAME_H);
+    if (y > GAME_H - r) ys.push(y - GAME_H);
+    for (const px of xs) {
+      for (const py of ys) {
+        ctx.save();
+        ctx.translate(px, py);
+        ctx.rotate(angle);
+        ctx.beginPath();
+        ctx.moveTo(verts[0].x, verts[0].y);
+        for (let i = 1; i < verts.length; i++) ctx.lineTo(verts[i].x, verts[i].y);
+        ctx.closePath();
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
   }
 }

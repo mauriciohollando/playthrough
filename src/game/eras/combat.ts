@@ -376,11 +376,15 @@ export class CombatEra implements Era {
             break;
           }
 
-          // Player died → brief pause then respawn round
+          // Player died → evolve after 3 deaths, otherwise respawn
           if (!playerAlive) {
-            this.respawnTimer = 1.2;
-            for (const x of this.tanks) x.alive = false;
             this.bullets = [];
+            for (const x of this.tanks) x.alive = false;
+            if (this.enemyScore >= 3) {
+              this.pendingEvolve = true;
+            } else {
+              this.respawnTimer = 1.2;
+            }
           }
           break;
         }
