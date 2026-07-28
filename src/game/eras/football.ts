@@ -36,19 +36,54 @@ export class FootballEra implements Era {
   private scoreAway = 0;
   private down = 1;
   private lineOfScrimmage = FIELD_X + 40;
+  private elapsed = 0;
+  private readonly MATCH_TIME = 58;
+  private ending = false;
+  private endTimer = 0;
 
   enter(): void {
     this.scoreHome = 0;
     this.scoreAway = 0;
     this.down = 1;
     this.lineOfScrimmage = FIELD_X + 50;
+    this.elapsed = 0;
+    this.ending = false;
+    this.endTimer = 0;
     this.setupPlay();
   }
 
+  snapshot(): {
+    players: { x: number; y: number; offense: boolean }[];
+    ballX: number;
+    ballY: number;
+  } {
+    return {
+      players: this.players.map((p) => ({
+        x: p.x,
+        y: p.y,
+        offense: p.offense,
+      })),
+      ballX: this.ballX,
+      ballY: this.ballY,
+    };
+  }
+
   update(dt: number, input: InputState): EraResult {
+    if (this.ending) {
+      this.endTimer -= dt;
+      if (this.endTimer <= 0) {
+        return { type: 'evolve', next: 'warrior', payload: this.snapshot() };
+      }
+      return { type: 'continue' };
+    }
+
+    this.elapsed += dt;
+
     if (this.huddleTimer > 0) {
       this.huddleTimer -= dt;
       if (this.huddleTimer <= 0) this.playActive = true;
+      // Still count time during huddle
+      if (this.elapsed >= this.MATCH_TIME) this.triggerEnd();
       return { type: 'continue' };
     }
 
@@ -103,6 +138,10 @@ export class FootballEra implements Era {
         this.scoreHome++;
         this.down = 1;
         this.lineOfScrimmage = FIELD_X + 50;
+        if (this.scoreHome >= 2 || this.elapsed >= this.MATCH_TIME) {
+          this.triggerEnd();
+          return { type: 'continue' };
+        }
         this.setupPlay();
       }
     }
@@ -121,6 +160,10 @@ export class FootballEra implements Era {
             this.down = 1;
             this.scoreAway++;
             this.lineOfScrimmage = FIELD_X + 50;
+            if (this.scoreAway >= 2 || this.elapsed >= this.MATCH_TIME) {
+              this.triggerEnd();
+              return { type: 'continue' };
+            }
           }
           this.setupPlay();
           break;
@@ -128,7 +171,18 @@ export class FootballEra implements Era {
       }
     }
 
+    if (this.elapsed >= this.MATCH_TIME) {
+      this.triggerEnd();
+    }
+
     return { type: 'continue' };
+  }
+
+  private triggerEnd(): void {
+    if (this.ending) return;
+    this.ending = true;
+    this.endTimer = 1.1;
+    this.playActive = false;
   }
 
   draw(ctx: CanvasRenderingContext2D, _alpha: number): void {

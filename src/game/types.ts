@@ -19,7 +19,9 @@ export type EraId =
   | 'breakout'
   | 'lunar'
   | 'galaxian'
-  | 'football';
+  | 'football'
+  | 'warrior'
+  | 'rallyx';
 
 export type EraResult =
   | { type: 'continue' }

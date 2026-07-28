@@ -19,6 +19,10 @@ import {
   GalaxianToFootballTransition,
 } from './eras/galaxianToFootball';
 import { FootballEra } from './eras/football';
+import {
+  FootballToWarriorTransition,
+  type FootballSnapshot,
+} from './eras/footballToWarrior';
 import { InvadersEra } from './eras/invaders';
 import {
   InvadersToAsteroidsTransition,
@@ -35,7 +39,13 @@ import {
   type PacManSnapshot,
 } from './eras/pacmanToBreakout';
 import { PongEra, type PongSnapshot } from './eras/pong';
+import { RallyXEra } from './eras/rallyx';
 import { TransitionEra } from './eras/transition';
+import { WarriorEra } from './eras/warrior';
+import {
+  WarriorToRallyXTransition,
+  type WarriorSnapshot,
+} from './eras/warriorToRallyx';
 import { initInput, pollInput } from './input';
 import type { Era, EraId } from './types';
 
@@ -162,6 +172,28 @@ export class GameEngine {
     }
     if (next === 'football') {
       this.era = new FootballEra();
+      this.era.enter();
+      return;
+    }
+    if (next === 'warrior' && this.era instanceof FootballEra) {
+      const snap = (payload as FootballSnapshot) ?? this.era.snapshot();
+      this.era = new FootballToWarriorTransition(snap);
+      this.era.enter();
+      return;
+    }
+    if (next === 'warrior') {
+      this.era = new WarriorEra();
+      this.era.enter();
+      return;
+    }
+    if (next === 'rallyx' && this.era instanceof WarriorEra) {
+      const snap = (payload as WarriorSnapshot) ?? this.era.snapshot();
+      this.era = new WarriorToRallyXTransition(snap);
+      this.era.enter();
+      return;
+    }
+    if (next === 'rallyx') {
+      this.era = new RallyXEra();
       this.era.enter();
       return;
     }
