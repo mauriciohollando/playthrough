@@ -10,7 +10,7 @@ export type InputState = {
   firePressed: boolean;
 };
 
-export type EraId = 'pong' | 'combat' | 'invaders' | 'asteroids';
+export type EraId = 'pong' | 'combat' | 'invaders' | 'asteroids' | 'pacman';
 
 export type EraResult =
   | { type: 'continue' }

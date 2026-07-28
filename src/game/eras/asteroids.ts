@@ -74,6 +74,8 @@ export class AsteroidsEra implements Era {
   private invuln = INVULN_TIME;
   private respawnTimer = 0;
   private thrusting = false;
+  private waveIndex = 0;
+  private lastRockSnapshot: { x: number; y: number; radius: number; angle: number }[] = [];
 
   enter(payload?: unknown): void {
     const hint = payload as AsteroidsSpawnHint | undefined;
@@ -87,7 +89,30 @@ export class AsteroidsEra implements Era {
     this.lives = 3;
     this.invuln = INVULN_TIME;
     this.respawnTimer = 0;
+    this.waveIndex = 0;
     this.spawnWave(4);
+  }
+
+  snapshot(): {
+    shipX: number;
+    shipY: number;
+    shipAngle: number;
+    rocks: { x: number; y: number; radius: number; angle: number }[];
+  } {
+    return {
+      shipX: this.x,
+      shipY: this.y,
+      shipAngle: this.angle,
+      rocks:
+        this.lastRockSnapshot.length > 0
+          ? this.lastRockSnapshot
+          : this.rocks.map((r) => ({
+              x: r.x,
+              y: r.y,
+              radius: r.radius,
+              angle: r.angle,
+            })),
+    };
   }
 
   update(dt: number, input: InputState): EraResult {
@@ -147,7 +172,22 @@ export class AsteroidsEra implements Era {
     this.updateShots(dt);
     this.collisions();
 
-    if (this.rocks.every((r) => !r.alive)) {
+    // Keep a visual snapshot of recent rocks for the morph
+    const living = this.rocks.filter((r) => r.alive);
+    if (living.length > 0) {
+      this.lastRockSnapshot = living.map((r) => ({
+        x: r.x,
+        y: r.y,
+        radius: r.radius,
+        angle: r.angle,
+      }));
+    }
+
+    if (this.rocks.every((r) => !r.alive) && this.rocks.length > 0) {
+      if (this.waveIndex === 0) {
+        return { type: 'evolve', next: 'pacman', payload: this.snapshot() };
+      }
+      this.waveIndex++;
       this.spawnWave(Math.min(7, 4 + Math.floor(Math.random() * 2)));
       this.invuln = Math.max(this.invuln, 1);
     }

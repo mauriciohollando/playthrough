@@ -1,5 +1,9 @@
 import { setupCanvas } from './canvas';
 import { AsteroidsEra } from './eras/asteroids';
+import {
+  AsteroidsToPacManTransition,
+  type AsteroidsSnapshot,
+} from './eras/asteroidsToPacman';
 import { CombatEra } from './eras/combat';
 import {
   CombatToInvadersTransition,
@@ -10,6 +14,7 @@ import {
   InvadersToAsteroidsTransition,
   type InvadersSnapshot,
 } from './eras/invadersToAsteroids';
+import { PacManEra } from './eras/pacman';
 import { PongEra, type PongSnapshot } from './eras/pong';
 import { TransitionEra } from './eras/transition';
 import { initInput, pollInput } from './input';
@@ -84,6 +89,17 @@ export class GameEngine {
     if (next === 'asteroids') {
       this.era = new AsteroidsEra();
       this.era.enter(payload);
+      return;
+    }
+    if (next === 'pacman' && this.era instanceof AsteroidsEra) {
+      const snap = (payload as AsteroidsSnapshot) ?? this.era.snapshot();
+      this.era = new AsteroidsToPacManTransition(snap);
+      this.era.enter();
+      return;
+    }
+    if (next === 'pacman') {
+      this.era = new PacManEra();
+      this.era.enter();
       return;
     }
   }
