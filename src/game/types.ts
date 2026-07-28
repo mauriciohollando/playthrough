@@ -18,7 +18,8 @@ export type EraId =
   | 'pacman'
   | 'breakout'
   | 'lunar'
-  | 'galaxian';
+  | 'galaxian'
+  | 'football';
 
 export type EraResult =
   | { type: 'continue' }

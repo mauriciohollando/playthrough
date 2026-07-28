@@ -36,6 +36,12 @@ type Alien = {
 
 type Shot = { x: number; y: number; vy: number; player: boolean; alive: boolean };
 
+export type GalaxianSnapshot = {
+  shipX: number;
+  aliens: { x: number; y: number; kind: string }[];
+  stars: { x: number; y: number }[];
+};
+
 const COLS = 8;
 const ROWS = 6;
 
@@ -64,6 +70,10 @@ export class GalaxianEra implements Era {
   private stars: { x: number; y: number }[] = [];
   private stage = 2; // Galaxian part 2
   private explosions: { x: number; y: number; t: number }[] = [];
+  private levelElapsed = 0;
+  private levelIndex = 0;
+  private readonly LEVEL_MIN_TIME = 55;
+  private lastAlienSnap: { x: number; y: number; kind: string }[] = [];
 
   enter(): void {
     this.shipX = GAME_W / 2;
@@ -76,6 +86,9 @@ export class GalaxianEra implements Era {
     this.sway = 0;
     this.swayDir = 1;
     this.diveTimer = 0.8;
+    this.levelElapsed = 0;
+    this.levelIndex = 0;
+    this.lastAlienSnap = [];
     this.stars = Array.from({ length: 50 }, () => ({
       x: Math.random() * GAME_W,
       y: Math.random() * GAME_H,
@@ -83,7 +96,22 @@ export class GalaxianEra implements Era {
     this.resetFormation();
   }
 
+  snapshot(): GalaxianSnapshot {
+    return {
+      shipX: this.shipX,
+      aliens:
+        this.lastAlienSnap.length > 0
+          ? this.lastAlienSnap
+          : this.aliens
+              .filter((a) => a.alive)
+              .map((a) => ({ x: a.x, y: a.y, kind: a.kind })),
+      stars: this.stars.map((s) => ({ ...s })),
+    };
+  }
+
   update(dt: number, input: InputState): EraResult {
+    this.levelElapsed += dt;
+
     // Star drift
     for (const s of this.stars) {
       s.y += 12 * dt;
@@ -116,7 +144,7 @@ export class GalaxianEra implements Era {
       this.shipX = clamp(this.shipX, 10, GAME_W - 10);
 
       if (input.firePressed && this.cooldown <= 0 && !this.playerShotAlive()) {
-        this.cooldown = 0.28;
+        this.cooldown = 0.38;
         this.shots.push({
           x: this.shipX - 1,
           y: SHIP_Y - 6,
@@ -130,8 +158,31 @@ export class GalaxianEra implements Era {
     this.updateAliens(dt);
     this.updateShots(dt);
 
+    const living = this.aliens.filter((a) => a.alive);
+    if (living.length > 0) {
+      this.lastAlienSnap = living.map((a) => ({ x: a.x, y: a.y, kind: a.kind }));
+    }
+
+    // Mid-level reinforcements so first stage lasts ~1 minute
+    if (
+      this.levelIndex === 0 &&
+      this.levelElapsed < this.LEVEL_MIN_TIME &&
+      this.aliveCount() <= 6
+    ) {
+      this.reinforceFormation();
+    }
+
     if (this.aliens.every((a) => !a.alive)) {
+      if (this.levelIndex === 0) {
+        if (this.levelElapsed >= this.LEVEL_MIN_TIME) {
+          return { type: 'evolve', next: 'football', payload: this.snapshot() };
+        }
+        this.resetFormation();
+        this.invuln = 1;
+        return { type: 'continue' };
+      }
       this.stage++;
+      this.levelIndex++;
       this.resetFormation();
       this.invuln = 1.5;
       this.diveTimer = 0.6;
@@ -214,6 +265,26 @@ export class GalaxianEra implements Era {
       }
     }
     this.syncFormationPositions();
+  }
+
+  /** Revive dead formation slots without interrupting divers */
+  private reinforceFormation(): void {
+    for (const a of this.aliens) {
+      if (!a.alive && !a.diving && Math.random() < 0.45) {
+        a.alive = true;
+        a.diving = false;
+        a.diveT = 0;
+        const p = this.homePos(a);
+        a.x = p.x;
+        a.y = p.y;
+      }
+    }
+    // If almost empty, full reset
+    if (this.aliveCount() < 4) this.resetFormation();
+  }
+
+  private aliveCount(): number {
+    return this.aliens.filter((a) => a.alive).length;
   }
 
   private homePos(a: Alien): { x: number; y: number } {

@@ -14,7 +14,11 @@ import {
   CombatToInvadersTransition,
   type CombatSnapshot,
 } from './eras/combatToInvaders';
-import { GalaxianEra } from './eras/galaxian';
+import { GalaxianEra, type GalaxianSnapshot } from './eras/galaxian';
+import {
+  GalaxianToFootballTransition,
+} from './eras/galaxianToFootball';
+import { FootballEra } from './eras/football';
 import { InvadersEra } from './eras/invaders';
 import {
   InvadersToAsteroidsTransition,
@@ -147,6 +151,17 @@ export class GameEngine {
     }
     if (next === 'galaxian') {
       this.era = new GalaxianEra();
+      this.era.enter();
+      return;
+    }
+    if (next === 'football' && this.era instanceof GalaxianEra) {
+      const snap = (payload as GalaxianSnapshot) ?? this.era.snapshot();
+      this.era = new GalaxianToFootballTransition(snap);
+      this.era.enter();
+      return;
+    }
+    if (next === 'football') {
+      this.era = new FootballEra();
       this.era.enter();
       return;
     }
