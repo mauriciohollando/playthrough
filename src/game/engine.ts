@@ -4,6 +4,11 @@ import {
   AsteroidsToPacManTransition,
   type AsteroidsSnapshot,
 } from './eras/asteroidsToPacman';
+import { BreakoutEra } from './eras/breakout';
+import {
+  BreakoutToLunarTransition,
+  type BreakoutSnapshot,
+} from './eras/breakoutToLunar';
 import { CombatEra } from './eras/combat';
 import {
   CombatToInvadersTransition,
@@ -14,7 +19,12 @@ import {
   InvadersToAsteroidsTransition,
   type InvadersSnapshot,
 } from './eras/invadersToAsteroids';
+import { LunarLanderEra } from './eras/lunar';
 import { PacManEra } from './eras/pacman';
+import {
+  PacManToBreakoutTransition,
+  type PacManSnapshot,
+} from './eras/pacmanToBreakout';
 import { PongEra, type PongSnapshot } from './eras/pong';
 import { TransitionEra } from './eras/transition';
 import { initInput, pollInput } from './input';
@@ -99,6 +109,28 @@ export class GameEngine {
     }
     if (next === 'pacman') {
       this.era = new PacManEra();
+      this.era.enter();
+      return;
+    }
+    if (next === 'breakout' && this.era instanceof PacManEra) {
+      const snap = (payload as PacManSnapshot) ?? this.era.snapshot();
+      this.era = new PacManToBreakoutTransition(snap);
+      this.era.enter();
+      return;
+    }
+    if (next === 'breakout') {
+      this.era = new BreakoutEra();
+      this.era.enter();
+      return;
+    }
+    if (next === 'lunar' && this.era instanceof BreakoutEra) {
+      const snap = (payload as BreakoutSnapshot) ?? this.era.snapshot();
+      this.era = new BreakoutToLunarTransition(snap);
+      this.era.enter();
+      return;
+    }
+    if (next === 'lunar') {
+      this.era = new LunarLanderEra();
       this.era.enter();
       return;
     }

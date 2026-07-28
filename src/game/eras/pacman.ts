@@ -59,6 +59,7 @@ export class PacManEra implements Era {
   private respawnTimer = 0;
   private readonly pacStep = 1 / 9;
   private readonly ghostStep = 1 / 11;
+  private levelIndex = 0;
 
   enter(): void {
     this.buildGrid();
@@ -67,6 +68,29 @@ export class PacManEra implements Era {
     this.powerTimer = 0;
     this.invuln = 1.5;
     this.respawnTimer = 0;
+    this.levelIndex = 0;
+  }
+
+  snapshot(): {
+    pacX: number;
+    pacY: number;
+    walls: { x: number; y: number }[];
+    ghosts: { x: number; y: number; color: string }[];
+  } {
+    const walls: { x: number; y: number }[] = [];
+    for (let y = 0; y < this.grid.length; y++) {
+      for (let x = 0; x < this.grid[y].length; x++) {
+        if (this.grid[y][x] === '#') walls.push({ x, y });
+      }
+    }
+    return {
+      pacX: this.pac.x,
+      pacY: this.pac.y,
+      walls,
+      ghosts: this.ghosts
+        .filter((g) => !g.eaten)
+        .map((g) => ({ x: g.x, y: g.y, color: g.color })),
+    };
   }
 
   update(dt: number, input: InputState): EraResult {
@@ -120,6 +144,10 @@ export class PacManEra implements Era {
     this.checkCollisions();
 
     if (this.pelletsLeft <= 0) {
+      if (this.levelIndex === 0) {
+        return { type: 'evolve', next: 'breakout', payload: this.snapshot() };
+      }
+      this.levelIndex++;
       this.buildGrid();
       this.resetActors();
       this.invuln = 2;
