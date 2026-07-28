@@ -20,6 +20,7 @@ export class LunarLanderEra implements Era {
   private thrusting = false;
   private status: 'flying' | 'landed' | 'crashed' = 'flying';
   private statusTimer = 0;
+  private pendingEvolve = false;
 
   enter(): void {
     this.buildTerrain();
@@ -28,18 +29,38 @@ export class LunarLanderEra implements Era {
       x: Math.random() * GAME_W,
       y: Math.random() * (GAME_H * 0.55),
     }));
+    this.pendingEvolve = false;
+  }
+
+  snapshot(): {
+    landerX: number;
+    landerY: number;
+    landerAngle: number;
+    terrain: { x: number; y: number }[];
+    stars: { x: number; y: number }[];
+  } {
+    return {
+      landerX: this.x,
+      landerY: this.y,
+      landerAngle: this.angle,
+      terrain: this.terrain.map((p) => ({ ...p })),
+      stars: this.stars.map((p) => ({ ...p })),
+    };
   }
 
   update(dt: number, input: InputState): EraResult {
+    if (this.pendingEvolve) {
+      return { type: 'evolve', next: 'galaxian', payload: this.snapshot() };
+    }
+
     if (this.status !== 'flying') {
       this.statusTimer -= dt;
       if (this.statusTimer <= 0) {
         if (this.status === 'landed') {
-          // Soft loop — stay on moon / relaunch for more landings
-          this.resetLander();
-        } else {
-          this.resetLander();
+          this.pendingEvolve = true;
+          return { type: 'evolve', next: 'galaxian', payload: this.snapshot() };
         }
+        this.resetLander();
       }
       return { type: 'continue' };
     }

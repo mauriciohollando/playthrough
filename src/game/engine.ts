@@ -14,12 +14,17 @@ import {
   CombatToInvadersTransition,
   type CombatSnapshot,
 } from './eras/combatToInvaders';
+import { GalaxianEra } from './eras/galaxian';
 import { InvadersEra } from './eras/invaders';
 import {
   InvadersToAsteroidsTransition,
   type InvadersSnapshot,
 } from './eras/invadersToAsteroids';
 import { LunarLanderEra } from './eras/lunar';
+import {
+  LunarToGalaxianTransition,
+  type LunarSnapshot,
+} from './eras/lunarToGalaxian';
 import { PacManEra } from './eras/pacman';
 import {
   PacManToBreakoutTransition,
@@ -131,6 +136,17 @@ export class GameEngine {
     }
     if (next === 'lunar') {
       this.era = new LunarLanderEra();
+      this.era.enter();
+      return;
+    }
+    if (next === 'galaxian' && this.era instanceof LunarLanderEra) {
+      const snap = (payload as LunarSnapshot) ?? this.era.snapshot();
+      this.era = new LunarToGalaxianTransition(snap);
+      this.era.enter();
+      return;
+    }
+    if (next === 'galaxian') {
+      this.era = new GalaxianEra();
       this.era.enter();
       return;
     }

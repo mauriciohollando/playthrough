@@ -17,7 +17,8 @@ export type EraId =
   | 'asteroids'
   | 'pacman'
   | 'breakout'
-  | 'lunar';
+  | 'lunar'
+  | 'galaxian';
 
 export type EraResult =
   | { type: 'continue' }
